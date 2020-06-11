@@ -28,7 +28,7 @@ defmodule Segment.Analytics.Batcher do
   @spec start_link(String.t()) :: GenServer.on_start()
   def start_link(api_key) do
     client = Segment.Http.client(api_key)
-    GenServer.start_link(__MODULE__, {client, :queue.new()}, name: __MODULE__)
+    GenServer.start_link(__MODULE__, {client, :queue.new()}, name: String.to_atom(api_key))
   end
 
   @doc """
@@ -46,19 +46,17 @@ defmodule Segment.Analytics.Batcher do
     Make a call to Segment with an event. Should be of type `Track, Identify, Screen, Alias, Group or Page`.
     This event will be queued and sent later in a batch.
   """
-  @spec call(Segment.segment_event()) :: :ok
-  def call(%{__struct__: mod} = event)
+  @spec call(Segment.segment_event(), pid() | __MODULE__.t()) :: :ok
+  def call(%{__struct__: mod} = event, pid \\ __MODULE__)
       when mod in [Track, Identify, Screen, Alias, Group, Page] do
-    enqueue(event)
+    enqueue(event, pid)
   end
 
   @doc """
     Force the batcher to flush the queue and send all the events as a big batch (warning could exceed batch size)
   """
-  @spec flush() :: :ok
-  def flush() do
-    GenServer.call(__MODULE__, :flush)
-  end
+  @spec flush(pid() | __MODULE__.t()) :: :ok
+  def flush(pid \\ __MODULE__), do: GenServer.call(pid, :flush)
 
   # GenServer Callbacks
 
@@ -96,9 +94,7 @@ defmodule Segment.Analytics.Batcher do
     Process.send_after(self(), :process_batch, Segment.Config.batch_every_ms())
   end
 
-  defp enqueue(event) do
-    GenServer.cast(__MODULE__, {:enqueue, event})
-  end
+  defp enqueue(event, pid), do: GenServer.cast(pid, {:enqueue, event})
 
   defp extract_batch(queue, 0),
     do: {[], queue}
